@@ -1,0 +1,58 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name backend.freedoms4.org;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name backend.freedoms4.org;
+
+    ssl_certificate     /etc/letsencrypt/live/backend.freedoms4.org/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/backend.freedoms4.org/privkey.pem;
+    include             /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
+
+    root /var/www/freedoms4/api;
+
+    location = /auth.php {
+        limit_except POST OPTIONS {
+            deny all;
+        }
+        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    }
+
+    location = /comments.php {
+        limit_except GET POST OPTIONS {
+            deny all;
+        }
+        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    }
+
+    location = /admin.php {
+        limit_except GET POST OPTIONS {
+            deny all;
+        }
+        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    }
+
+
+    location / {
+        deny all;
+    }
+}

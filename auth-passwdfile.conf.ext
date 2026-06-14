@@ -1,0 +1,9 @@
+passdb {
+  driver = passwd-file
+  args = scheme=SHA512-CRYPT username_format=%n /var/dovecot/users
+}
+userdb {
+  driver = passwd-file
+  args = username_format=%n /var/dovecot/users
+  default_fields = uid=vmail gid=mail home=/var/vmail/%n@freedoms4.org/maildir
+}
