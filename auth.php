@@ -528,14 +528,14 @@ if ($action === 'signup') {
 
     $welcome_message =
         "Hi {$username},\n\n" .
-        "Welcome aboard!\n\n" .
-        "Thank you for signing up.\n\n" .
-        "Your credentials for services:\n\n" .
-        "XMPP JID: {$xmpp_username}@freedoms4.org\n" .
+        "Welcome aboard, thank you for signing up!\n\n" .
+        "Your credentials for the services:\n\n" .
         "Email ID: {$username}@freedoms4.org\n" .
+        "XMPP JID: {$xmpp_username}@freedoms4.org\n" .
         "Passwords: Use the same password that you used during registration.\n\n" .
         "If you have any questions, I'm here to help:\n" .
-        "Email <mailto:hyzen@freedoms4.org> and XMPP <xmpp:hyzen@freedoms4.org>: hyzen@freedoms4.org\n" .
+	"Email: mailto:hyzen@freedoms4.org\n".
+	"XMPP: xmpp:hyzen@freedoms4.org\n" .
         "IRC/Liberachat: hyzen, #freedoms4\n\n" .
         "Best regards,\n" .
         "hyzen, freedoms4.org.";
