@@ -139,7 +139,7 @@ if ($user_id === 0) {
 $pdo = db_connect();
 
 // Prevent admin from acting on themselves
-$stmt = $pdo->prepare('SELECT username FROM users WHERE id = :id LIMIT 1');
+$stmt = $pdo->prepare('SELECT username, email FROM users WHERE id = :id LIMIT 1');
 $stmt->execute([':id' => $user_id]);
 $target = $stmt->fetch();
 if (!$target) {
@@ -202,6 +202,12 @@ if ($action === 'delete_user') {
 
     $pdo->prepare('DELETE FROM users WHERE id = :id')
         ->execute([':id' => $user_id]);
+
+    // Clear OTP history for this email so re-signing-up doesn't hit the
+    // daily OTP request limit because of OTPs sent before deletion.
+    $pdo->prepare('DELETE FROM email_otps WHERE email = :e')
+        ->execute([':e' => $target['email']]);
+
     json_out(['success' => true]);
 }
 
