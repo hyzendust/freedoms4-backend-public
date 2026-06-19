@@ -20,11 +20,11 @@ fi
 
 echo ""
 echo -e "${BLUE}================================================${NC}"
-echo -e "${BLUE}  freedoms4 uninstall (keeps DB + email accounts)${NC}"
+echo -e "${BLUE}  freedoms4 uninstall (keeps DB + mail working)${NC}"
 echo -e "${BLUE}================================================${NC}"
 echo ""
-warn "This removes deployed files and config only."
-warn "Database, email accounts, and mailboxes are preserved."
+warn "This removes deployed API/nginx files and config only."
+warn "Database, email accounts, mailboxes, and mail client auth are preserved."
 echo ""
 
 # ── 1. Stop php-fpm to release DB connections ──
@@ -50,42 +50,17 @@ rm -f /usr/local/bin/email-account-create
 rm -f /etc/sudoers.d/email-account-create
 success "email-account-create removed."
 
-# ── 5. Undo Dovecot passwd-file auth config ──
-# NOTE: /var/dovecot/users and /var/vmail are intentionally preserved.
-info "Reverting Dovecot auth config (preserving user accounts and mailboxes)..."
-sed -i '/auth-passwdfile/d' /etc/dovecot/conf.d/10-auth.conf
-cat > /etc/dovecot/conf.d/auth-passwdfile.conf.ext << 'DOVECOT'
-# passdb and userdb for virtual users — managed by full-setup.sh
-# (currently inactive; run full-setup.sh to re-enable)
-DOVECOT
-rm -f /etc/dovecot/conf.d/99-postfix-auth.conf
-systemctl reload dovecot
-success "Dovecot config reverted (accounts and mailboxes untouched)."
+# ── 5. Dovecot auth config: left untouched ──
+# Mail clients must keep working after uninstall, so the auth-passwdfile
+# config in /etc/dovecot/conf.d/10-auth.conf is intentionally NOT reverted.
+info "Leaving Dovecot auth config untouched (mail clients keep working)..."
+success "Dovecot config left as-is — existing accounts can still log in."
 
-# ── 6. Undo Postfix SASL and virtual mailbox config ──
-info "Reverting Postfix config..."
-
-# Use postconf -X to fully remove parameters rather than set them empty.
-postconf -X transport_maps
-postconf -X dovecot_destination_recipient_limit
-postconf -X local_recipient_maps
-postconf -X smtpd_sasl_type
-postconf -X smtpd_sasl_path
-postconf -e "smtpd_sasl_auth_enable = no"
-postconf -X smtpd_sasl_security_options
-postconf -X smtpd_sasl_local_domain
-postconf -e "broken_sasl_auth_clients = no"
-postconf -e "smtpd_recipient_restrictions = permit_mynetworks, reject_unauth_destination"
-
-# Remove the dovecot pipe transport block from master.cf
-sed -i '/^dovecot[[:space:]]*unix.*pipe/,/argv=\/usr\/lib\/dovecot\//d' /etc/postfix/master.cf 2>/dev/null || true
-
-# NOTE: /etc/postfix/virtual_transport and its .db are preserved so that
-# existing site-created email accounts retain their routing entries when
-# full-setup.sh re-enables transport_maps.
-success "Postfix config reverted — system users (hyzen etc.) unaffected."
-
-systemctl reload postfix
+# ── 6. Postfix SASL / virtual mailbox config: left untouched ──
+# Reverting this previously broke client SMTP auth and mail delivery for
+# already-created accounts, so it's intentionally skipped here.
+info "Leaving Postfix SASL and virtual transport config untouched..."
+success "Postfix config left as-is — existing accounts keep sending/receiving mail."
 
 # ── 7. Restart php-fpm ──
 info "Restarting php8.2-fpm..."
@@ -103,6 +78,13 @@ echo "    - /var/dovecot/users (virtual email accounts)"
 echo "    - /var/vmail (mailboxes)"
 echo "    - /etc/postfix/virtual_transport (routing entries)"
 echo "    - vmail system user"
+echo "    - Dovecot auth-passwdfile config (clients can still log in)"
+echo "    - Postfix SASL + virtual transport config (mail still sends/receives)"
 echo ""
-echo "  Run full-setup.sh again to redeploy without losing any data."
+echo "  Removed:"
+echo "    - API dir (/var/www/freedoms4), env file (/etc/freedoms4)"
+echo "    - Nginx site for backend.freedoms4.org"
+echo "    - email-account-create wrapper + sudoers rule (no new accounts via signup)"
+echo ""
+echo "  Run full-setup.sh again to redeploy the API/signup flow."
 echo ""
