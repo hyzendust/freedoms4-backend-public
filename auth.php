@@ -499,9 +499,10 @@ if ($action === 'signup') {
     // Regenerate session after successful signup (#5)
     session_regenerate_id(true);
 
-    // Create XMPP account
-    if (!create_xmpp_account($username, $password)) {
-        error_log("XMPP account creation failed for new user: {$username}");
+    // Create XMPP account (JID localparts are lowercased per XMPP convention)
+    $xmpp_username = strtolower($username);
+    if (!create_xmpp_account($xmpp_username, $password)) {
+        error_log("XMPP account creation failed for new user: {$xmpp_username}");
         // Don't fail the signup — user account exists, XMPP can be fixed manually
     }
 
@@ -529,9 +530,9 @@ if ($action === 'signup') {
         "Hi {$username},\n\n" .
         "Welcome aboard!\n\n" .
         "Thank you for signing up.\n\n" .
-        "Your credentials:\n\n" .
-        "XMPP JID: {$username}@freedoms4.org\n" .
-        "Email ID: {$username}@freedoms4.org\n\n" .
+        "Your credentials for services:\n\n" .
+        "XMPP JID: {$xmpp_username}@freedoms4.org\n" .
+        "Email ID: {$username}@freedoms4.org\n" .
         "Passwords: Use the same password that you used during registration.\n\n" .
         "If you have any questions, I'm here to help:\n" .
         "Email <mailto:hyzen@freedoms4.org> and XMPP <xmpp:hyzen@freedoms4.org>: hyzen@freedoms4.org\n" .
