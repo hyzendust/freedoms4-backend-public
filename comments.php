@@ -273,6 +273,12 @@ if ($action === 'post' || $action === 'reply') {
     if ($post_id === '') {
         json_out(['success' => false, 'message' => 'post_id is required.']);
     }
+    // post_id should always be a site-relative path like "/blog/some-post/".
+    // Reject anything else here, before it can shape outgoing notification
+    // email content or anything else downstream.
+    if (!preg_match('#^/[a-zA-Z0-9_/-]{1,200}/$#', $post_id)) {
+        json_out(['success' => false, 'message' => 'Invalid post_id.']);
+    }
     if ($text === '') {
         json_out(['success' => false, 'message' => 'Comment cannot be empty.']);
     }
