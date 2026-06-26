@@ -43,6 +43,7 @@ define('OTP_FROM',        'no-reply@freedoms4.org');
 define('OTP_TTL',         600);      // 10 minutes
 define('OTP_MAX_DAY',     5);        // max OTPs per email per 24 h
 define('OTP_MAX_FAILS',   10);       // max failed OTP attempts per IP before lockout
+define('LOGIN_MAX_FAILS', 10);       // max failed login attempts per username before lockout (independent of IP)
 define('MAX_BODY_BYTES',  4096);
 
 // ── CORS ──
@@ -170,6 +171,40 @@ function otp_fail_increment(string $ip): void {
 
 function otp_fail_reset(string $ip): void {
     $key = 'otpfail_' . hash('sha256', $ip);
+    if (function_exists('apcu_delete')) {
+        apcu_delete($key);
+        return;
+    }
+    unset($_SESSION[$key]);
+}
+
+// Per-account login failure tracking — independent of the global per-IP
+// rate limit, so a brute-force attack distributed across many IPs still
+// gets locked out once a single account has too many failed attempts.
+function login_fail_count(string $username): int {
+    $key = 'loginfail_' . hash('sha256', strtolower($username));
+    if (function_exists('apcu_fetch')) {
+        $count = apcu_fetch($key, $ok);
+        return $ok ? (int)$count : 0;
+    }
+    return $_SESSION[$key] ?? 0;
+}
+
+function login_fail_increment(string $username): void {
+    $key = 'loginfail_' . hash('sha256', strtolower($username));
+    if (function_exists('apcu_inc')) {
+        if (!apcu_fetch($key)) {
+            apcu_store($key, 1, 900); // 15 minute lockout window
+        } else {
+            apcu_inc($key);
+        }
+        return;
+    }
+    $_SESSION[$key] = ($_SESSION[$key] ?? 0) + 1;
+}
+
+function login_fail_reset(string $username): void {
+    $key = 'loginfail_' . hash('sha256', strtolower($username));
     if (function_exists('apcu_delete')) {
         apcu_delete($key);
         return;
@@ -376,6 +411,12 @@ if ($action === 'login') {
         json_out(['success' => false, 'message' => 'Username and password are required.']);
     }
 
+    // Per-account brute-force lockout — checked before touching the DB, and
+    // independent of the global per-IP limit above.
+    if (login_fail_count($username) >= LOGIN_MAX_FAILS) {
+        json_out(['success' => false, 'message' => 'Too many failed attempts for this account. Please wait 15 minutes and try again.'], 429);
+    }
+
     $pdo  = db_connect();
     $stmt = $pdo->prepare('SELECT id, username, password_hash, blocked FROM users WHERE username = :u LIMIT 1');
     $stmt->execute([':u' => $username]);
@@ -383,8 +424,12 @@ if ($action === 'login') {
 
     $hash = $user['password_hash'] ?? '$2y$12$invalidhashpadding000000000000000000000000000000000000000';
     if (!$user || !password_verify($password, $hash)) {
+        login_fail_increment($username);
         json_out(['success' => false, 'message' => 'Invalid username or password.']);
     }
+
+    // Correct password — clear the failure counter for this account.
+    login_fail_reset($username);
 
     if ($user && ($user['blocked'] === true || $user['blocked'] === 't')) {
         json_out(['success' => false, 'message' => 'This account has been blocked.']);
