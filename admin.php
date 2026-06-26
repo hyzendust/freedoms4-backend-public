@@ -41,7 +41,7 @@ define('ADMIN_USER',       'hyzen');
 $origin          = $_SERVER['HTTP_ORIGIN'] ?? '';
 $allowed_origins = ['https://freedoms4.org', 'https://www.freedoms4.org'];
 
-if ($origin && !in_array($origin, $allowed_origins, true)) {
+if (!$origin || !in_array($origin, $allowed_origins, true)) {
     http_response_code(403);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['success' => false, 'message' => 'Forbidden.']);
