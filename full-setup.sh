@@ -21,12 +21,15 @@ DB_USER=""
 DB_PASS=""
 PROSODY_DB_USER=""
 PROSODY_DB_PASS=""  # must match /etc/prosody/prosody.cfg.lua
-DOMAIN=""
+DOMAIN="backend.freedoms4.org"
 CERTBOT_EMAIL=""
-API_DIR=""
-ENV_FILE=""
+API_DIR="/var/www/freedoms4/api"
+ENV_FILE="/etc/freedoms4/auth.env"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-OTP_FROM="" # for example: no-reply@freedoms4.org
+OTP_FROM="no-reply@freedoms4.org"
+SESSION_SAVE_PATH="/var/lib/php/sessions-freedoms4"
+REMEMBER_COOKIE_TTL=34560000  # 400 days — "Keep me logged in" cookie lifetime
+
 
 # Must run as root
 if [[ $EUID -ne 0 ]]; then
@@ -204,6 +207,12 @@ if [[ ! -S /run/php/php8.2-fpm.sock ]]; then
 fi
 success "php8.2-fpm ready."
 
+# Dedicated session save path, kept outside phpsessionclean's default sweep target
+mkdir -p "${SESSION_SAVE_PATH}"
+chown www-data:www-data "${SESSION_SAVE_PATH}"
+chmod 700 "${SESSION_SAVE_PATH}"
+success "Session save path ready at ${SESSION_SAVE_PATH}."
+
 # ── STEP 5  Mail server check ──
 info "Checking mail server (Postfix) for OTP delivery..."
 
@@ -365,6 +374,8 @@ fi
 
 mkdir -p "${API_DIR}"
 cp "${SCRIPT_DIR}/auth.php" "${API_DIR}/auth.php"
+sed -i "/define('SESSION_SAMESITE',/a define('SESSION_SAVE_PATH', '${SESSION_SAVE_PATH}');" "${API_DIR}/auth.php"
+sed -i "/define('SESSION_SAMESITE',/a define('REMEMBER_COOKIE_TTL', ${REMEMBER_COOKIE_TTL});" "${API_DIR}/auth.php"
 chown -R www-data:www-data "${API_DIR}"
 chmod 640 "${API_DIR}/auth.php"
 success "auth.php deployed."
@@ -373,6 +384,8 @@ if [[ ! -f "${SCRIPT_DIR}/comments.php" ]]; then
     error "comments.php not found in ${SCRIPT_DIR}."
 fi
 cp "${SCRIPT_DIR}/comments.php" "${API_DIR}/comments.php"
+sed -i "/define('SESSION_SAMESITE',/a define('SESSION_SAVE_PATH', '${SESSION_SAVE_PATH}');" "${API_DIR}/comments.php"
+sed -i "/define('SESSION_SAMESITE',/a define('REMEMBER_COOKIE_TTL', ${REMEMBER_COOKIE_TTL});" "${API_DIR}/comments.php"
 chown www-data:www-data "${API_DIR}/comments.php"
 chmod 640 "${API_DIR}/comments.php"
 success "comments.php deployed."
@@ -381,6 +394,8 @@ if [[ ! -f "${SCRIPT_DIR}/admin.php" ]]; then
     error "admin.php not found in ${SCRIPT_DIR}."
 fi
 cp "${SCRIPT_DIR}/admin.php" "${API_DIR}/admin.php"
+sed -i "/define('SESSION_SAMESITE',/a define('SESSION_SAVE_PATH', '${SESSION_SAVE_PATH}');" "${API_DIR}/admin.php"
+sed -i "/define('SESSION_SAMESITE',/a define('REMEMBER_COOKIE_TTL', ${REMEMBER_COOKIE_TTL});" "${API_DIR}/admin.php"
 chown www-data:www-data "${API_DIR}/admin.php"
 chmod 640 "${API_DIR}/admin.php"
 success "admin.php deployed."

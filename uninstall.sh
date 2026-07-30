@@ -31,11 +31,12 @@ echo ""
 info "Stopping php8.2-fpm..."
 systemctl stop php8.2-fpm
 
-# ── 2. Remove deployed API dir and env file ──
-info "Removing API dir and env file..."
+# ── 2. Remove deployed API dir, env file, and session save path ──
+info "Removing API dir, env file, and session save path..."
 rm -rf /var/www/freedoms4
 rm -rf /etc/freedoms4
-success "API dir and env file removed."
+rm -rf /var/lib/php/sessions-freedoms4
+success "API dir, env file, and session save path removed."
 
 # ── 3. Remove nginx site ──
 info "Removing nginx site config..."
@@ -82,7 +83,7 @@ echo "    - Dovecot auth-passwdfile config (clients can still log in)"
 echo "    - Postfix SASL + virtual transport config (mail still sends/receives)"
 echo ""
 echo "  Removed:"
-echo "    - API dir (/var/www/freedoms4), env file (/etc/freedoms4)"
+echo "    - API dir (/var/www/freedoms4), env file (/etc/freedoms4), session save path (/var/lib/php/sessions-freedoms4)"
 echo "    - Nginx site for backend.freedoms4.org"
 echo "    - email-account-create wrapper + sudoers rule (no new accounts via signup)"
 echo ""

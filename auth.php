@@ -37,7 +37,6 @@ define('PROSODY_HOST',    $env['PROSODY_HOST']    ?? 'freedoms4.org');
 define('SESSION_NAME',     'f4_session');
 define('SESSION_SECURE',   true);
 define('SESSION_SAMESITE', 'None');
-define('SESSION_TTL',      86400);   // 24 hours
 
 define('OTP_FROM',        'no-reply@freedoms4.org');
 define('OTP_TTL',         600);      // 10 minutes
@@ -79,6 +78,8 @@ function json_out(array $data, int $status = 200): never {
 
 function start_session(): void {
     if (session_status() === PHP_SESSION_NONE) {
+        ini_set('session.gc_maxlifetime', (string) REMEMBER_COOKIE_TTL);
+        ini_set('session.save_path', SESSION_SAVE_PATH);
         session_name(SESSION_NAME);
         session_set_cookie_params([
             'lifetime' => 0,
@@ -119,31 +120,6 @@ function prosody_db_connect(): PDO {
         PDO::ATTR_EMULATE_PREPARES   => false,
     ]);
     return $pdo;
-}
-
-// Rate limiting via APCu (per-IP, persistent across requests within the window)
-// Falls back to session-based if APCu is unavailable.
-function rate_limit(string $ip, int $max, int $window): bool {
-    $key = 'rl_' . hash('sha256', $ip);
-    if (function_exists('apcu_fetch')) {
-        $count = apcu_fetch($key, $ok);
-        if (!$ok) {
-            apcu_store($key, 1, $window);
-            return true;
-        }
-        if ($count >= $max) return false;
-        apcu_inc($key);
-        return true;
-    }
-    // Session fallback
-    $now = time();
-    $rl  = $_SESSION[$key] ?? ['count' => 0, 'window_start' => $now];
-    if ($now - $rl['window_start'] > $window) {
-        $rl = ['count' => 0, 'window_start' => $now];
-    }
-    $rl['count']++;
-    $_SESSION[$key] = $rl;
-    return $rl['count'] <= $max;
 }
 
 // OTP failure tracking via APCu (per-IP lockout after OTP_MAX_FAILS attempts)
@@ -295,41 +271,12 @@ if (!is_array($body)) {
 }
 $action = $body['action'] ?? '';
 
-// ── Session + rate limiting ──
+// ── Session ──
 start_session();
 $now = time();
 $ip  = $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 
-if (!rate_limit($ip, 20, 900)) {
-    json_out(['success' => false, 'message' => 'Too many requests. Please wait a few minutes.'], 429);
-}
 
-// ── 24 h session expiry ──
-if (!empty($_SESSION['user_id'])) {
-    $last_seen = $_SESSION['last_seen'] ?? 0;
-    if ($now - $last_seen > SESSION_TTL) {
-        if (!empty($_SESSION['db_session_id'])) {
-            try {
-                db_connect()->prepare(
-                    "UPDATE user_sessions SET logged_out_at = NOW() WHERE id = :sid AND logged_out_at IS NULL"
-                )->execute([':sid' => $_SESSION['db_session_id']]);
-            } catch (Exception $e) {}
-        }
-        session_destroy();
-        start_session();
-        json_out(['success' => false, 'message' => 'Session expired. Please log in again.'], 401);
-    }
-    if ($now - $last_seen > 60) {
-        $_SESSION['last_seen'] = $now;
-        if (!empty($_SESSION['db_session_id'])) {
-            try {
-                db_connect()->prepare(
-                    "UPDATE user_sessions SET last_seen_at = NOW() WHERE id = :sid"
-                )->execute([':sid' => $_SESSION['db_session_id']]);
-            } catch (Exception $e) {}
-        }
-    }
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // Send OTP
@@ -406,6 +353,7 @@ if ($action === 'send_otp') {
 if ($action === 'login') {
     $username = trim($body['username'] ?? '');
     $password = $body['password'] ?? '';
+    $remember = !empty($body['remember']);
 
     if ($username === '' || $password === '') {
         json_out(['success' => false, 'message' => 'Username and password are required.']);
@@ -439,7 +387,17 @@ if ($action === 'login') {
     session_regenerate_id(true);
     $_SESSION['user_id']   = $user['id'];
     $_SESSION['username']  = $user['username'];
-    $_SESSION['last_seen'] = $now;
+    $_SESSION['remember']  = $remember;
+
+    if ($remember) {
+        setcookie(session_name(), session_id(), [
+            'expires'  => $now + REMEMBER_COOKIE_TTL,
+            'path'     => '/',
+            'secure'   => SESSION_SECURE,
+            'httponly' => true,
+            'samesite' => SESSION_SAMESITE,
+        ]);
+    }
 
     $ua         = substr($_SERVER['HTTP_USER_AGENT'] ?? '', 0, 512);
     $session_hash = hash('sha256', session_id());
@@ -600,13 +558,20 @@ if ($action === 'check_session') {
         json_out(['valid' => false]);
     }
 
-    // Verify user still exists in DB
+    // Verify user still exists in DB and isn't blocked
     try {
         $pdo  = db_connect();
-        $stmt = $pdo->prepare('SELECT 1 FROM users WHERE id = :id LIMIT 1');
+        $stmt = $pdo->prepare('SELECT blocked FROM users WHERE id = :id LIMIT 1');
         $stmt->execute([':id' => $_SESSION['user_id']]);
-        if (!$stmt->fetch()) {
+        $row = $stmt->fetch();
+        if (!$row) {
             // User deleted — destroy session
+            $_SESSION = [];
+            session_destroy();
+            json_out(['valid' => false]);
+        }
+        if ($row['blocked'] === true || $row['blocked'] === 't') {
+            // User blocked — destroy session
             $_SESSION = [];
             session_destroy();
             json_out(['valid' => false]);

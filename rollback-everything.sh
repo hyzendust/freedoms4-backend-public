@@ -45,11 +45,12 @@ info "Dropping freedoms4 database and user..."
 (cd /tmp && sudo -u postgres psql -c "DROP USER IF EXISTS freedoms4_user;")
 success "Database and user dropped."
 
-# ── 5. Remove deployed API dir and env file ──
-info "Removing API dir and env file..."
+# ── 5. Remove deployed API dir, env file, and session save path ──
+info "Removing API dir, env file, and session save path..."
 rm -rf /var/www/freedoms4
 rm -rf /etc/freedoms4
-success "API dir and env file removed."
+rm -rf /var/lib/php/sessions-freedoms4
+success "API dir, env file, and session save path removed."
 
 # ── 6. Remove nginx site ──
 info "Removing nginx site config..."

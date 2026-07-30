@@ -84,6 +84,8 @@ function db_connect(): PDO {
 
 function start_session(): void {
     if (session_status() === PHP_SESSION_NONE) {
+        ini_set('session.gc_maxlifetime', (string) REMEMBER_COOKIE_TTL);
+        ini_set('session.save_path', SESSION_SAVE_PATH);
         session_name(SESSION_NAME);
         session_set_cookie_params([
             'lifetime' => 0,
@@ -171,6 +173,7 @@ function send_notification(string $type, string $actor, string $body, string $po
 
 function logged_in_user(): ?array {
     if (empty($_SESSION['user_id']) || empty($_SESSION['username'])) return null;
+
     // Verify the user still exists in the DB (handles deleted accounts / wiped DB)
     try {
         $pdo  = db_connect();

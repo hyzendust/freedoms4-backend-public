@@ -218,6 +218,8 @@ function xmpp_delete_backup(string $username): void {
 
 // ── Session + admin check ──
 if (session_status() === PHP_SESSION_NONE) {
+    ini_set('session.gc_maxlifetime', (string) REMEMBER_COOKIE_TTL);
+    ini_set('session.save_path', SESSION_SAVE_PATH);
     session_name(SESSION_NAME);
     session_set_cookie_params([
         'lifetime' => 0,
