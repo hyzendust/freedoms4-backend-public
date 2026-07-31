@@ -104,71 +104,66 @@ function start_session(): void {
  * $type        'new_comment' | 'new_reply'
  * $actor       username of the person who wrote the comment/reply
  * $body        the comment/reply text
- * $post_id     the post slug/path (used as human-readable context)
+ * $post_url    the post's current live URL
+ * $post_title  the post's title, used as the link text
  * $notify_user ['username' => ..., 'email' => ...] | null  — commenter being replied to
  */
-function send_notification(string $type, string $actor, string $body, string $post_id, ?array $notify_user): void {
+function send_notification(string $type, string $actor, string $body, string $post_url, string $post_title, ?array $notify_user): void {
     $from    = 'no-reply@freedoms4.org';
     $headers = implode("\r\n", [
         'From: freedoms4.org <' . $from . '>',
         'Reply-To: ' . $from,
         'X-Mailer: PHP/' . PHP_VERSION,
         'MIME-Version: 1.0',
-        'Content-Type: text/plain; charset=UTF-8',
+        'Content-Type: text/html; charset=UTF-8',
     ]);
 
-    $post_url = 'https://freedoms4.org' . trim($post_id, '"\'');
+    $safe_actor = htmlspecialchars($actor, ENT_QUOTES, 'UTF-8');
+    $safe_body  = nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8'));
+    $safe_title = htmlspecialchars($post_title !== '' ? $post_title : $post_url, ENT_QUOTES, 'UTF-8');
+    $safe_url   = htmlspecialchars($post_url, ENT_QUOTES, 'UTF-8');
+    $link       = "<a href=\"{$safe_url}\">{$safe_title}</a>";
 
-    if ($type === 'new_reply') {
-        // ── Reply notification ──
-        // Always notify hyzen (unless hyzen is the one replying)
-        $reply_subject = "You have a new reply from {$actor}";
-        $reply_body    =
-            "You have a new reply from {$actor}:\n\n" .
-            "{$body}\n\n" .
-            "Post: {$post_url}\n\n" .
-            "freedoms4.org";
+    $actor_is_hyzen = $actor === 'hyzen';
 
-        // Notify the commenter being replied to (their registered email + @freedoms4.org),
-        // unless they are hyzen (handled separately below)
-        if ($notify_user && $notify_user['username'] !== 'hyzen') {
-            // Send to registered email
-            if (!empty($notify_user['email'])) {
-                @mail($notify_user['email'], $reply_subject, $reply_body, $headers);
-            }
-            // Send to their @freedoms4.org address
-            $site_email = $notify_user['username'] . '@freedoms4.org';
-            @mail($site_email, $reply_subject, $reply_body, $headers);
-        }
-
-        // Notify hyzen for all replies (unless hyzen is the replier)
-        if ($actor !== 'hyzen') {
-            // If hyzen is being replied to, use the reply subject; otherwise use new-comment subject
-            if ($notify_user && $notify_user['username'] === 'hyzen') {
-                @mail('hyzen@freedoms4.org', $reply_subject, $reply_body, $headers);
-            } else {
-                // hyzen gets a "new reply" notice even when it's not on their own comment
-                $hyzen_subject = "A new comment from {$actor}";
-                $hyzen_body    =
-                    "A new comment from {$actor}:\n\n" .
-                    "{$body}\n\n" .
-                    "Post: {$post_url}\n\n" .
-                    "freedoms4.org";
-                @mail('hyzen@freedoms4.org', $hyzen_subject, $hyzen_body, $headers);
-            }
-        }
-
-    } else {
-        // ── New top-level comment notification (hyzen only) ──
-        if ($actor === 'hyzen') return; // hyzen commenting on their own site — skip
-        $subject  = "A new comment from {$actor}";
-        $msg      =
-            "A new comment from {$actor}:\n\n" .
-            "{$body}\n\n" .
-            "Post: {$post_url}\n\n" .
-            "freedoms4.org";
+    if ($type === 'new_comment') {
+        // Top-level comment: hyzen gets notified
+        if ($actor_is_hyzen) return;
+        $subject = "A new comment from {$actor}";
+        $msg     = render_notification_email("A new comment from {$safe_actor}:", $safe_body, $link);
         @mail('hyzen@freedoms4.org', $subject, $msg, $headers);
+        return;
     }
+
+    // $type === 'new_reply': two independent recipients — the person replied to and hyzen. Either, both, or neither may end up receiving an email
+    $parent_is_hyzen  = $notify_user && $notify_user['username'] === 'hyzen';
+    $replying_to_self = $notify_user && $notify_user['username'] === $actor;
+
+    $reply_subject = "You have a new reply from {$actor}";
+    $reply_body    = render_notification_email("You have a new reply from {$safe_actor}:", $safe_body, $link);
+
+    // Recipient 1: person being replied to. Skipped when: replying to own comment. Replying to hyzen is handled by Recipient 2 next
+    if ($notify_user && !$parent_is_hyzen && !$replying_to_self) {
+        if (!empty($notify_user['email'])) {
+            @mail($notify_user['email'], $reply_subject, $reply_body, $headers);
+        }
+        @mail($notify_user['username'] . '@freedoms4.org', $reply_subject, $reply_body, $headers);
+    }
+
+    // Recipient 2: hyzen. Skipped when: hyzen sent the reply
+    if (!$actor_is_hyzen) {
+        if ($parent_is_hyzen) {
+            @mail('hyzen@freedoms4.org', $reply_subject, $reply_body, $headers);
+        } else {
+            $hyzen_subject = "A new comment from {$actor}";
+            $hyzen_body    = render_notification_email("A new comment from {$safe_actor}:", $safe_body, $link);
+            @mail('hyzen@freedoms4.org', $hyzen_subject, $hyzen_body, $headers);
+        }
+    }
+}
+
+function render_notification_email(string $heading, string $safe_body, string $link): string {
+    return "<p>{$heading}</p><p>{$safe_body}</p><p>Post: {$link}</p><p>freedoms4.org</p>";
 }
 
 function logged_in_user(): ?array {
@@ -269,9 +264,11 @@ $action = $body['action'] ?? '';
 
 // ── POST: add comment or reply ──
 if ($action === 'post' || $action === 'reply') {
-    $post_id   = trim($body['post_id']   ?? '');
-    $text      = trim($body['body']      ?? '');
-    $parent_id = isset($body['parent_id']) ? (int)$body['parent_id'] : null;
+    $post_id    = trim($body['post_id']    ?? '');
+    $post_url   = trim($body['post_url']   ?? '');
+    $post_title = trim($body['post_title'] ?? '');
+    $text       = trim($body['body']       ?? '');
+    $parent_id  = isset($body['parent_id']) ? (int)$body['parent_id'] : null;
 
     if ($post_id === '') {
         json_out(['success' => false, 'message' => 'post_id is required.']);
@@ -282,6 +279,11 @@ if ($action === 'post' || $action === 'reply') {
     if (!preg_match('#^/[a-zA-Z0-9_/-]{1,200}/$#', $post_id)) {
         json_out(['success' => false, 'message' => 'Invalid post_id.']);
     }
+    // post_url used only for notification links
+    if (!preg_match('#^https://freedoms4\.org/[a-zA-Z0-9_/-]{1,200}/$#', $post_url)) {
+        $post_url = 'https://freedoms4.org' . $post_id;
+    }
+    $post_title = substr($post_title, 0, 300);
     if ($text === '') {
         json_out(['success' => false, 'message' => 'Comment cannot be empty.']);
     }
@@ -336,10 +338,10 @@ if ($action === 'post' || $action === 'reply') {
         );
         $parent_stmt->execute([':pid' => $parent_id]);
         $parent_author = $parent_stmt->fetch() ?: null;
-        send_notification('new_reply', $user['username'], $text, $post_id, $parent_author);
+        send_notification('new_reply', $user['username'], $text, $post_url, $post_title, $parent_author);
     } else {
         // Top-level comment
-        send_notification('new_comment', $user['username'], $text, $post_id, null);
+        send_notification('new_comment', $user['username'], $text, $post_url, $post_title, null);
     }
 
     json_out(['success' => true, 'id' => $row['id'], 'created_at' => $row['created_at']]);
